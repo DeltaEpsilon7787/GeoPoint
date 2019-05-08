@@ -231,6 +231,7 @@ class GeopointServer(WebSocketHandler):
                     "To activate your account, head over to this link %TODO%\n"
                     f"Alternatively, you can enter this key: {generated_key}"
                 )
+            )
 
             generate_response(self, 'register', 'neither',
                               'An activation message has been sent to this email. You have 15 minutes to accept it.')
