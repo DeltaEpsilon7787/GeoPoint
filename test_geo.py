@@ -24,33 +24,42 @@ def test():
     }))
     result = yield conn.read_message()
     result = loads(result)
-    print(result)
 
     session_id = result['session_id']
-    yield conn.write_message(dumps({
-        'action': 'geopoint_get',
-        'username': 'admin',
-        'session_id': session_id
-    }))
-    result = yield conn.read_message()
-    print(result)
 
-    # DoS test
-    print('Alpha')
-    yeet = [
-        conn.write_message(dumps({
-                'action': 'geopoint_get',
-                'username': 'admin',
-                'session_id': session_id
+    while True:
+        act = input('action: ')
+        params = input('params: ')
+
+        try:
+            params = {
+                pair.split(':')[0]: pair.split(':')[1]
+                for pair in params.split(';')
+            }
+        except Exception as E:
+            print(E)
+            continue
+
+        yield conn.write_message(dumps({
+            'action': 'get_stat',
+            'username': 'admin',
+            'session_id': session_id
         }))
-        for i in range(100000)
-    ]
-    print('Beta')
-    start_time = perf_counter()
-    yield multi(yeet)
-    print('Gamma')
-    result = yield conn.read_message()
-    print('Delta')
-    print(perf_counter() - start_time)
+
+        result = yield conn.read_message()
+        result = loads(result)
+        print(result)
+
+        yield conn.write_message(dumps({
+            'action': act,
+            'username': 'admin',
+            'session_id': session_id,
+            **params
+        }))
+
+        result = yield conn.read_message()
+        result = loads(result)
+        print(f'{act}: {result}')
+    pass
 
 IOLoop.current().run_sync(test)

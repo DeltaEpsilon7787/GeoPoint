@@ -127,6 +127,9 @@ class GeopointServer(WebSocketHandler):
 
     @coroutine
     def send_friend_request(self, username=None, session_id=None, target=None):
+        if username == target:
+            generate_response(self, 'send_friend_request', 'fail', 'You are already friends with yourself')
+
         if username not in self.active_sessions:
             generate_response(self, 'send_friend_request', 'fail', 'User has not logged in.')
             return
@@ -237,7 +240,7 @@ class GeopointServer(WebSocketHandler):
                               'An activation message has been sent to this email. You have 15 minutes to accept it.')
 
     @coroutine
-    def get_status(self, username=None, session_id=None):
+    def get_stat(self, username=None, session_id=None):
         if self.last_clear - time() > 5 * 60:
             self.last_clear = time()
             for key, (last_ping, _) in self.active_sessions.items():
@@ -258,9 +261,9 @@ class GeopointServer(WebSocketHandler):
                     'pending_friend_requests': wannabe_friends
                 }
 
-                generate_response(self, 'get_status', 'success', dumps(answer))
+                generate_response(self, 'get_stat', 'success', dumps(answer))
         else:
-            generate_response(self, 'get_status', 'fail', 'Session does not exist.')
+            generate_response(self, 'get_stat', 'fail', 'Session does not exist.')
 
     @staticmethod
     @coroutine
@@ -302,6 +305,7 @@ class GeopointServer(WebSocketHandler):
 
     @coroutine
     def on_message(self, message):
+        print(message)
         if len(message) > 10000:
             generate_response(self, 'any', 'fail', 'This message is too long')
             return
@@ -327,7 +331,11 @@ class GeopointServer(WebSocketHandler):
             return
 
         args = {*data}
-        aux_args = {*func.__wrapped__.__code__.co_varnames} - {'self'}
+
+        if hasattr(func, '__wrapped__'):
+            aux_args = {*func.__wrapped__.__code__.co_varnames} - {'self'}
+        else:
+            aux_args = {*func.__code__.co_varnames} - {'self'}
         if args < aux_args:
             generate_response(self, action, 'fail', 'Not enough arguments')
             return
@@ -339,7 +347,8 @@ class GeopointServer(WebSocketHandler):
                 if arg in aux_args
             })
         except Exception as E:
-            print(E)
+            print(
+                E)
             generate_response(self, action, 'fail', 'Unknown error')
 
 
@@ -350,4 +359,5 @@ app = Application([
 
 app.listen(8010)
 
+print('The server is up')
 IOLoop.current().start()
