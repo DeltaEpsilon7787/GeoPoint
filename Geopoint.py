@@ -266,7 +266,6 @@ class GeopointServer(WebSocketHandler):
             generate_response(self, 'get_stat', 'fail', 'Session does not exist.')
 
     @staticmethod
-    @coroutine
     def check_login(username, password):
         return database_client.local.users.find_one({
             'username': username,
@@ -274,14 +273,12 @@ class GeopointServer(WebSocketHandler):
         })
 
     @staticmethod
-    @coroutine
     def user_in_db(username):
         return database_client.local.users.find_one({
             'username': username
-        }) and True or False
+        })
 
     @staticmethod
-    @coroutine
     def get_friend_list(username):
         return list(database_client.local.friendpairs.find({
             'username1': username
