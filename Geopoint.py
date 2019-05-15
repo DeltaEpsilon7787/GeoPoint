@@ -28,20 +28,19 @@ def generate_response(source, action, status, reason):
 
 class AuthRegisterHandler(RequestHandler):
     @coroutine
-    def get(self, email, key):
+    def get(self, key):
         GeopointServer.clear_old_activations()
-        if email not in GeopointServer.outgoing_activations:
+        if key not in GeopointServer.outgoing_activations:
             self.write('This email is not in the process of activation or the key expired.')
-        elif GeopointServer.outgoing_activations[email][0] != key:
-            self.write('Incorrect activation key.')
         else:
-            _, _, username, password = GeopointServer.outgoing_activations[email]
+            email, _, username, password = GeopointServer.outgoing_activations[key]
             database_client.local.users.insert_one({
                 'username': username,
                 'password': password,
                 'email': email
             })
             self.write('Your account has successfully been activated.')
+            del GeopointServer.outgoing_activations[key]
 
 
 class GeopointServer(WebSocketHandler):
@@ -219,7 +218,7 @@ class GeopointServer(WebSocketHandler):
             generate_response(self, 'register', 'fail', 'This user already exists.')
         else:
             generated_key = ''.join(choice(ascii_letters) for _ in range(50))
-            self.outgoing_activations[email] = (generated_key, perf_counter(), username, password)
+            self.outgoing_activations[generated_key] = (email, perf_counter(), username, password)
 
             email_client.sendmail(
                 'Geopoint Bot',
@@ -350,7 +349,7 @@ class GeopointServer(WebSocketHandler):
 
 
 app = Application([
-    ('/activate/(.+?)/(.+?)$', AuthRegisterHandler),
+    ('/activate/(.+?)$', AuthRegisterHandler),
     ('/', GeopointServer)
 ])
 
