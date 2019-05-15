@@ -236,7 +236,7 @@ class GeopointServer(WebSocketHandler):
                 )
             )
 
-            generate_response(self, 'register', 'neither',
+            generate_response(self, 'register', 'success',
                               'An activation message has been sent to this email. You have 15 minutes to accept it.')
 
     @coroutine
