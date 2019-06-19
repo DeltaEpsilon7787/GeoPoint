@@ -1,5 +1,6 @@
 # coding: utf-8
 from collections import defaultdict
+from functools import wrapper
 from json import dumps, loads
 from random import choice
 from smtplib import SMTP_SSL
@@ -18,29 +19,8 @@ email_client = SMTP_SSL(host='smtp.gmail.com',
 email_client.login('scrapebot.test@gmail.com', 'alpha_beta')
 
 
-def generate_response(source, action, status, reason):
-    return source.write_message({
-        'action': action,
-        'status': status,
-        'reason': reason
-    })
-
-
-class AuthRegisterHandler(RequestHandler):
-    @coroutine
-    def get(self, key):
-        GeopointServer.clear_old_activations()
-        if key not in GeopointServer.outgoing_activations:
-            self.write('This email is not in the process of activation or the key expired.')
-        else:
-            email, _, username, password = GeopointServer.outgoing_activations[key]
-            database_client.local.users.insert_one({
-                'username': username,
-                'password': password,
-                'email': email
-            })
-            self.write('Your account has successfully been activated.')
-            del GeopointServer.outgoing_activations[key]
+class InvalidSignatureError(Exception):
+    pass
 
 
 class GeopointServer(WebSocketHandler):
@@ -52,217 +32,63 @@ class GeopointServer(WebSocketHandler):
 
     notify_friend_req_response = defaultdict(list)
 
-    @coroutine
-    def geopoint_get(self, username=None, session_id=None):
-        if username not in self.active_sessions:
-            generate_response(self, 'geopoint_get', 'fail', 'User has not logged in.')
-            return
+    _id = 0
+    api_methods = {}
 
-        if session_id != self.active_sessions[username][1]:
-            generate_response(self, 'geopoint_get', 'fail', 'Session has expired.')
-            return
-
-        result = [
-            {
-                'lat': hit['lat'],
-                'lon': hit['lon'],
-                'time': hit['time']
-            }
-            for hit in database_client.local.points.find({'username': username})
-        ]
-
-        generate_response(self, 'geopoint_get', 'success', dumps(result))
-
-    @coroutine
-    def geopoint_get_friends(self, username=None, session_id=None):
-        if username not in self.active_sessions:
-            generate_response(self, 'geopoint_get_friends', 'fail', 'User has not logged in.')
-            return
-
-        if session_id != self.active_sessions[username][1]:
-            generate_response(self, 'geopoint_get_friends', 'fail', 'Session has expired.')
-            return
-
-        result = []
-
-        for friend_datum in self.get_friend_list(username):
-            friend_name = (
-                friend_datum['username2']
-                if friend_datum['username1'] == username
-                else friend_datum['username1']
-                if friend_datum['username1'] != username
-                else ''
-            )
-
-            result.extend(
-                {
-                    'lat': hit['lat'],
-                    'lon': hit['lon'],
-                    'time': hit['time'],
-                    'friend': friend_name
-                }
-                for hit in database_client.local.points.find({'username': friend_name})
-            )
-        generate_response(self, 'geopoint_get', 'success', dumps(result))
-
-    @coroutine
-    def geopoint_post(self, lat=None, lon=None, username=None, session_id=None):
-        if username not in self.active_sessions:
-            generate_response(self, 'geopoint_post', 'fail', 'User has not logged in.')
-            return
-
-        if session_id != self.active_sessions[username][1]:
-            generate_response(self, 'geopoint_post', 'fail', 'Session has expired.')
-            return
-
-        database_client.local.points.insert_one({
-            'username': username,
-            'time': time(),
-            'lat': lat,
-            'lon': lon
+    def generate_success(self, id_, code='GENERIC_SUCCESS', data={}):
+        return source.write_message({
+            'id': id_,
+            'status': 'success',
+            'code': code,
+            'data': data
         })
 
-        generate_response(self, 'geopoint_post', 'success', 'Geopoint has been added.')
+    def generate_error(self, id_, code='GENERIC_ERROR', data={}):
+        return source.write_message({
+            'id': id_,
+            'status': 'fail',
+            'code': code,
+            'data': data
+        })
 
-    @coroutine
-    def send_friend_request(self, username=None, session_id=None, target=None):
-        if username == target:
-            generate_response(self, 'send_friend_request', 'fail', 'You are already friends with yourself')
+    def assert_active(func):
+        @wrapper(func)
+        def inner(self, id, **params):
+            try:
+                params['username']
+                params['session_id']
+            except KeyError:
+                self.generate_error(id, 'AUTH_DENIED')
+                return False
 
-        if username not in self.active_sessions:
-            generate_response(self, 'send_friend_request', 'fail', 'User has not logged in.')
-            return
+            if params['username'] not in self.active_sessions:
+                self.generate_error(params.get('id'), 'USER_NOT_LOGGED')
+                return False
 
-        if session_id != self.active_sessions[username][1]:
-            generate_response(self, 'send_friend_request', 'fail', 'Session has expired.')
-            return
+            if params['session_id'] != self.active_sessions[username][1]:
+                self.generate_error(params.get('id'), 'SESSION_EXPIRED')
+                return False
+            return func(**params)
+        return inner
 
-        if not self.user_in_db(target):
-            generate_response(self, 'send_friend_request', 'fail', 'This user does not exist.')
-            return
-
-        if target in self.outgoing_friend_reqs[username]:
-            generate_response(self, 'send_friend_request', 'fail',
-                              f'You have already send a friend request to {target}')
-            return
-
-        self.outgoing_friend_reqs[username].append(target)
-        generate_response(self, 'send_friend_request', 'success', f'Your friend request has been sent to {target}')
-
-    @coroutine
-    def respond_to_friend_request(self, username=None, session_id=None, target=None, is_accept=None):
-        if username not in self.active_sessions:
-            generate_response(self, 'respond_to_friend_request', 'fail', 'User has not logged in.')
-            return
-
-        if session_id != self.active_sessions[username][1]:
-            generate_response(self, 'respond_to_friend_request', 'fail', 'Session has expired.')
-            return
-
-        if not self.user_in_db(target):
-            generate_response(self, 'respond_to_friend_request', 'fail', 'This user does not exist.')
-            return
-
-        if username not in self.outgoing_friend_reqs[target]:
-            generate_response(self, 'respond_to_friend_request', 'fail', f'This user has not sent you a friend request')
-            return
-
-        if is_accept:
-            database_client.local.friendpairs.insert({
-                'username1': target,
-                'username2': username
-            })
-            generate_response(self, 'respond_to_friend_request', 'success', f'You have added {target} to friends.')
-        else:
-            generate_response(self,
-                              'respond_to_friend_request',
-                              'success',
-                              f"You have declined {target}'s friend request")
-        self.notify_friend_req_response[target].append((username, is_accept))
-        self.outgoing_friend_reqs[target].remove(username)
-
-    @coroutine
-    def get_my_friends(self, username=None, session_id=None):
-        if username not in self.active_sessions:
-            generate_response(self, 'get_my_friends', 'fail', 'User has not logged in.')
-            return
-
-        if session_id != self.active_sessions[username][1]:
-            generate_response(self, 'get_my_friends', 'fail', 'Session has expired.')
-            return
-
-        generate_response(self,
-                          'get_my_friends',
-                          'success',
-                          dumps(
-                              friend_datum['username2']
-                              if friend_datum['username1'] == username
-                              else friend_datum['username1']
-                              for friend_datum in self.get_friend_list(username)
-                          ))
-
-    @staticmethod
-    @coroutine
-    def clear_old_activations():
-        for key, (_, time, _, _) in GeopointServer.outgoing_activations.items():
-            if perf_counter() - time > 15 * 60:
-                del GeopointServer.outgoing_activations[key]
-
-    @coroutine
-    def register(self, username=None, password=None, email=None):
-        self.clear_old_activations()
-
-        if email in self.outgoing_activations:
-            generate_response(self, 'register', 'fail', 'An activation message has already been sent to this email.')
-        elif self.user_in_db(username):
-            generate_response(self, 'register', 'fail', 'This user already exists.')
-        else:
-            generated_key = ''.join(choice(ascii_letters) for _ in range(50))
-            self.outgoing_activations[generated_key] = (email, perf_counter(), username, password)
-
-            email_client.sendmail(
-                'Geopoint Bot',
-                [email],
-                (
-                    "From: Geopoint Bot\n"
-                    f"To: {email}\n"
-                    "Subject: Activation\n"
-                    "\n"
-                    "Somebody has used this email to register at GeoPoint app. "
-                    "If this doesn't look familiar, ignore this email.\n"
-                    f"To activate your account, head over to this link: http://31.25.28.142:8010/activate/{generated_key}\n"
-                    f"Alternatively, you can enter this key: {generated_key}"
-                )
-            )
-
-            generate_response(self, 'register', 'success',
-                              'An activation message has been sent to this email. You have 15 minutes to accept it.')
-
-    @coroutine
-    def get_stat(self, username=None, session_id=None):
-        if self.last_clear - time() > 5 * 60:
-            self.last_clear = time()
-            for key, (last_ping, _) in self.active_sessions.items():
-                if last_ping - time() > 2 * 60:
-                    del self.active_sessions[key]
-
-        if username in self.active_sessions:
-            if session_id == self.active_sessions[username][1]:
-                self.active_sessions[username][0] = time()
-
-                wannabe_friends = [
-                    wannabe_friend
-                    for wannabe_friend, requests in self.outgoing_friend_reqs.items()
-                    if username in requests
-                ]
-
-                answer = {
-                    'pending_friend_requests': wannabe_friends
+    def register_api(*signature):
+            GeopointServer.api_methods[func.__name__] = func
+        def decorator(func):
+            @wrapper(func)
+            def inner(id, **params):
+                params = {
+                    key: value
+                    for key, value in params.items()
+                    if value is not None
                 }
-
-                generate_response(self, 'get_stat', 'success', dumps(answer))
-        else:
-            generate_response(self, 'get_stat', 'fail', 'Session does not exist.')
+                if {*params.keys()} < {*signature}:
+                    raise InvalidSignatureError
+                return func(id, **{
+                    params[key]
+                    for key in signature
+                })
+            return inner
+        return decorator
 
     @staticmethod
     def check_login(username, password):
@@ -285,73 +111,243 @@ class GeopointServer(WebSocketHandler):
             'username2': username
         }))
 
+    @staticmethod
+    def clear_old_activations():
+        for key, (_, time, _, _) in GeopointServer.outgoing_activations.items():
+            if perf_counter() - time > 15 * 60:
+                del GeopointServer.outgoing_activations[key]
+
+    @register_api()
+    def fetch_id(self, id):
+        self.generate_success(-1, data=self._id)
+        self._id += 1
+
+    @register_api()
+    def get_time(self, id):
+        self.generate_success(-1, data=time())
+
     @coroutine
-    def auth(self, username=None, password=None):
+    @register_api('username')
+    @assert_active
+    def geopoint_get(self, id, username=None):
+        result = [
+            {
+                'lat': hit['lat'],
+                'lon': hit['lon'],
+                'time': hit['time']
+            }
+            for hit in database_client.local.points.find({'username': username})
+        ]
+        self.generate_success(id, data=result)
+
+    @coroutine
+    @register_api('username')
+    @assert_active
+    def geopoint_get_friends(self, id, username=None):
+        result = []
+
+        for friend_datum in self.get_friend_list(username):
+            friend_name = (
+                friend_datum['username2']
+                if friend_datum['username1'] == username
+                else friend_datum['username1']
+                if friend_datum['username1'] != username
+                else ''
+            )
+
+            result.extend(
+                {
+                    'lat': hit['lat'],
+                    'lon': hit['lon'],
+                    'time': hit['time'],
+                    'friend': friend_name
+                }
+                for hit in database_client.local.points.find({'username': friend_name})
+            )
+        self.generate_success(id, data=result)
+
+    @coroutine
+    @register_api('lat', 'lon', 'username')
+    @assert_active
+    def geopoint_post(self, id, lat=None, lon=None, username=None):
+        database_client.local.points.insert_one({
+            'username': username,
+            'time': time(),
+            'lat': lat,
+            'lon': lon
+        })
+        self.generate_success(id)
+
+    @coroutine
+    @register_api('username', 'target')
+    @assert_active
+    def send_friend_request(self, id, username=None, target=None):
+        if username == target:
+            self.generate_error(id, 'FRIENDS_WITH_YOURSELF')
+        else if not self.user_in_db(target):
+            self.generate_error(id, 'USER_DOES_NOT_EXIST', data=target)
+        else if target in self.outgoing_friend_reqs[username]:
+            self.generate_error(id, 'REPEAT_FRIEND_REQUEST', data=target)
+        else:
+            self.outgoing_friend_reqs[username].append(target)
+            self.generate_success(id, data=target)
+
+    @coroutine
+    @register_api('username', 'target', 'is_accept')
+    @assert_active
+    def respond_to_friend_request(self, id, username=None, target=None, is_accept=None):
+        if not self.user_in_db(target):
+            self.generate_error(id, 'USER_DOES_NOT_EXIST', data=target)
+            return
+        if username not in self.outgoing_friend_reqs[target]:
+            self.generate_error(
+                id, 'USER_NOT_SENT_FRIEND_REQUEST', data=target)
+            return
+
+        if is_accept:
+            database_client.local.friendpairs.insert({
+                'username1': target,
+                'username2': username
+            })
+            self.generate_success(id, 'FRIEND_ADDED', data=target)
+        else:
+            self.generate_success(id, 'FRIEND_NOT_ADDED', data=target)
+        self.notify_friend_req_response[target].append(
+            (username, is_accept))
+        self.outgoing_friend_reqs[target].remove(username)
+
+    @coroutine
+    @register_api('username')
+    @assert_active
+    def get_my_friends(self, id, username=None):
+        self.generate_success(id, data=[
+            friend_datum['username2']
+            if friend_datum['username1'] == username
+            else friend_datum['username1']
+            for friend_datum in self.get_friend_list(username)
+        ])
+
+    @coroutine
+    @register_api('username', 'password', 'email')
+    def register(self, id, username=None, password=None, email=None):
+        self.clear_old_activations()
+
+        if email in self.outgoing_activations:
+            self.generate_error(id, 'ACTIVATION_IN_PROGRESS')
+        elif self.user_in_db(username):
+            self.generate_error(id, 'USER_ALREADY_EXISTS', data=username)
+        else:
+            generated_key = ''.join(choice(digits) for _ in range(6))
+            self.outgoing_activations[generated_key] = (
+                email, perf_counter(), username, password)
+
+            email_client.sendmail(
+                'Geopoint Bot',
+                [email],
+                (
+                    "From: Geopoint Bot\n"
+                    f"To: {email}\n"
+                    "Subject: Activation\n"
+                    "\n"
+                    "Somebody has used this email to register at GeoPoint app. "
+                    "If this doesn't look familiar, ignore this email.\n"
+                    f"Enter this key to accept: {generated_key}"
+                )
+            )
+            self.generate_success(id)
+    
+    @coroutine
+    @register_api('key')
+    def activate(self, id, key=None):
+        self.clear_old_activations()
+
+        if key not in self.outgoing_activations:
+            self.generate_error(id, 'INVALID_KEY')
+        else:
+            email, _, username, password = GeopointServer.outgoing_activations[key]
+            database_client.local.users.insert_one({
+                'username': username,
+                'password': password,
+                'email': email
+            })
+            self.generate_success(id)
+            del GeopointServer.outgoing_activations[key]
+
+    @register_api('username', 'session_id')
+    @assert_active
+    def accept_heartbeat(self, id, username=None, session_id=None):
+        if self.last_clear - time() > 5 * 60:
+            self.last_clear = time()
+            for key, (last_ping, _) in self.active_sessions.items():
+                if last_ping - time() > 2 * 60:
+                    del self.active_sessions[key]
+
+        if session_id == self.active_sessions[username][1]:
+            self.active_sessions[username][0] = time()
+
+        self.generate_success(id)
+
+    @coroutine
+    @register_api('username')
+    @assert_active
+    def get_friend_requests(self, id, username=None):
+        wannabe_friends = [
+            wannabe_friend
+            for wannabe_friend, requests in self.outgoing_friend_reqs.items()
+            if username in requests
+        ]
+
+        self.generate_success(id, data=wannabe_friends)
+
+    @coroutine
+    @register_api('username', 'password')
+    def auth(self, id, username=None, password=None):
         if self.check_login(username, password):
             generated_id = ''.join(choice(ascii_letters) for _ in range(50))
             self.active_sessions[username] = [time(), generated_id]
-            self.write_message({
-                'action': 'auth',
-                'status': 'success',
-                'session_id': generated_id,
-                'reason': 'Authentication successful.'
-            })
+            self.generate_success(id, data=generated_id)
         else:
-            generate_response(self, 'auth', 'fail', 'Incorrect username or password.')
+            self.generate_error(id)
 
     @coroutine
-    def on_message(self, message): 
+    def on_message(self, message):
         print(message)
         if len(message) > 10000:
-            generate_response(self, 'any', 'fail', 'This message is too long')
+            self.generate_error(-1, 'MESSAGE_TOO_LONG')
             return
-
+        
         try:
             data = loads(message)
-        except Exception as E:
-            generate_response(self, 'any', 'fail', 'JSON decode error')
-            return
-
-        if 'action' not in data:
-            generate_response(self, 'any', 'fail', 'Action is not defined')
-            return
-
-        action = data['action']
-
-        try:
-            func = getattr(GeopointServer, action)
-            getattr(func, '__code__')
-            getattr(func.__code__, 'co_varnames')
-        except AttributeError:
-            generate_response(self, 'any', 'fail', 'This action does not exist')
-            return
-
-        args = {*data}
-
-        if hasattr(func, '__wrapped__'):
-            aux_args = {*func.__wrapped__.__code__.co_varnames} - {'self'}
-        else:
-            aux_args = {*func.__code__.co_varnames} - {'self'}
-        if args < aux_args:
-            generate_response(self, action, 'fail', 'Not enough arguments')
+        except Exception:
+            self.generate_error(-1, 'JSON_DECODE_ERROR')
             return
 
         try:
-            yield func(self, **{
-                arg: value
-                for arg, value in data.items()
-                if arg in aux_args
-            })
+            action = data['action']
+        except Exception:
+            self.generate_error(-1, 'ACTION_NOT_DEFINED')
+            return
+
+        try:
+            id = data['id']
+        except KeyError:
+            self.generate_error(-1, 'ID_NOT_SPECIFIED')
+            return
+
+        if action not in GeopointServer.api_methods:
+            self.generate_error(id, 'UNKNOWN_ACTION')
+            return
+
+        del data['action']
+        del data['id']
+
+        try:
+            yield GeopointServer.api_methods[action]](id, **data)
         except Exception as E:
-            print(
-                E)
-            generate_response(self, action, 'fail', 'Unknown error')
+            print(E)
+            self.generate_error(id, )
 
-
-app = Application([
-    ('/activate/(.+?)$', AuthRegisterHandler),
-    ('/', GeopointServer)
-])
+app = Application([('/', GeopointServer)])
 
 app.listen(8010)
 
