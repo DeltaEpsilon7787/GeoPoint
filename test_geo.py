@@ -16,7 +16,7 @@ from tornado.websocket import WebSocketHandler, websocket_connect
 
 @coroutine
 def test():
-    conn = yield websocket_connect('ws://localhost:8010/', io_loop=IOLoop.instance())
+    conn = yield websocket_connect('ws://31.25.28.142:8010/')
     yield conn.write_message(dumps({
         'action': 'auth',
         'username': 'admin',

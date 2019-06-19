@@ -230,7 +230,7 @@ class GeopointServer(WebSocketHandler):
                     "\n"
                     "Somebody has used this email to register at GeoPoint app. "
                     "If this doesn't look familiar, ignore this email.\n"
-                    "To activate your account, head over to this link %TODO%\n"
+                    f"To activate your account, head over to this link: http://31.25.28.142:8010/activate/{generated_key}\n"
                     f"Alternatively, you can enter this key: {generated_key}"
                 )
             )
@@ -300,7 +300,7 @@ class GeopointServer(WebSocketHandler):
             generate_response(self, 'auth', 'fail', 'Incorrect username or password.')
 
     @coroutine
-    def on_message(self, message):
+    def on_message(self, message): 
         print(message)
         if len(message) > 10000:
             generate_response(self, 'any', 'fail', 'This message is too long')
