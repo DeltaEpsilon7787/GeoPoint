@@ -33,8 +33,6 @@ class GeopointServer(WebSocketHandler):
 
     notify_friend_req_response = defaultdict(list)
 
-    _id = 0
-
     def generate_success(self, id_, code='GENERIC_SUCCESS', data={}):
         return self.write_message({
             'id': id_,
@@ -118,13 +116,8 @@ class GeopointServer(WebSocketHandler):
                 del GeopointServer.outgoing_activations[key]
 
     @register_api()
-    def fetch_id(self, id):
-        self.generate_success(-1, data=self._id)
-        self._id += 1
-
-    @register_api()
     def get_time(self, id):
-        self.generate_success(-1, data=time())
+        self.generate_success(id, data=time())
 
     @coroutine
     @assert_active
