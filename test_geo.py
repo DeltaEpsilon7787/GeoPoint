@@ -16,16 +16,20 @@ from tornado.websocket import WebSocketHandler, websocket_connect
 
 @coroutine
 def test():
-    conn = yield websocket_connect('ws://31.25.28.142:8010/')
+    # conn = yield websocket_connect('ws://31.25.28.142:8010/')
+    conn = yield websocket_connect('ws://localhost:8010/')
     yield conn.write_message(dumps({
+        'id': 5,
         'action': 'auth',
         'username': 'admin',
         'password': '9c237c21540f359825dd94f9939c3cd397613850abb8b915d3adf69046b34a37'
     }))
+    print('?')
     result = yield conn.read_message()
+    print('??')
     result = loads(result)
-
-    session_id = result['session_id']
+    print('???')
+    session_id = result['data']
 
     while True:
         act = input('action: ')
@@ -41,7 +45,8 @@ def test():
             continue
 
         yield conn.write_message(dumps({
-            'action': 'get_stat',
+            'id': 0,
+            'action': '',
             'username': 'admin',
             'session_id': session_id
         }))
@@ -52,6 +57,7 @@ def test():
 
         yield conn.write_message(dumps({
             'action': act,
+            'id': 10,
             'username': 'admin',
             'session_id': session_id,
             **params

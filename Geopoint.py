@@ -1,6 +1,6 @@
 # coding: utf-8
 from collections import defaultdict
-from functools import wrapper
+from functools import wraps
 from json import dumps, loads
 from random import choice
 from smtplib import SMTP_SSL
@@ -23,6 +23,7 @@ class InvalidSignatureError(Exception):
     pass
 
 
+API_METHODS = {}
 class GeopointServer(WebSocketHandler):
     active_sessions = {}
     last_clear = time()
@@ -33,10 +34,9 @@ class GeopointServer(WebSocketHandler):
     notify_friend_req_response = defaultdict(list)
 
     _id = 0
-    api_methods = {}
 
     def generate_success(self, id_, code='GENERIC_SUCCESS', data={}):
-        return source.write_message({
+        return self.write_message({
             'id': id_,
             'status': 'success',
             'code': code,
@@ -44,7 +44,7 @@ class GeopointServer(WebSocketHandler):
         })
 
     def generate_error(self, id_, code='GENERIC_ERROR', data={}):
-        return source.write_message({
+        return self.write_message({
             'id': id_,
             'status': 'fail',
             'code': code,
@@ -52,7 +52,7 @@ class GeopointServer(WebSocketHandler):
         })
 
     def assert_active(func):
-        @wrapper(func)
+        @wraps(func)
         def inner(self, id, **params):
             try:
                 params['username']
@@ -72,10 +72,9 @@ class GeopointServer(WebSocketHandler):
         return inner
 
     def register_api(*signature):
-            GeopointServer.api_methods[func.__name__] = func
         def decorator(func):
-            @wrapper(func)
-            def inner(id, **params):
+            @wraps(func)
+            def inner(self, id, **params):
                 params = {
                     key: value
                     for key, value in params.items()
@@ -83,10 +82,11 @@ class GeopointServer(WebSocketHandler):
                 }
                 if {*params.keys()} < {*signature}:
                     raise InvalidSignatureError
-                return func(id, **{
-                    params[key]
+                return func(self, id, **{
+                    key: params[key]
                     for key in signature
                 })
+            API_METHODS[func.__name__] = inner
             return inner
         return decorator
 
@@ -127,8 +127,8 @@ class GeopointServer(WebSocketHandler):
         self.generate_success(-1, data=time())
 
     @coroutine
-    @register_api('username')
     @assert_active
+    @register_api('username')
     def geopoint_get(self, id, username=None):
         result = [
             {
@@ -184,9 +184,9 @@ class GeopointServer(WebSocketHandler):
     def send_friend_request(self, id, username=None, target=None):
         if username == target:
             self.generate_error(id, 'FRIENDS_WITH_YOURSELF')
-        else if not self.user_in_db(target):
+        elif not self.user_in_db(target):
             self.generate_error(id, 'USER_DOES_NOT_EXIST', data=target)
-        else if target in self.outgoing_friend_reqs[username]:
+        elif target in self.outgoing_friend_reqs[username]:
             self.generate_error(id, 'REPEAT_FRIEND_REQUEST', data=target)
         else:
             self.outgoing_friend_reqs[username].append(target)
@@ -255,7 +255,7 @@ class GeopointServer(WebSocketHandler):
                 )
             )
             self.generate_success(id)
-    
+
     @coroutine
     @register_api('key')
     def activate(self, id, key=None):
@@ -315,7 +315,7 @@ class GeopointServer(WebSocketHandler):
         if len(message) > 10000:
             self.generate_error(-1, 'MESSAGE_TOO_LONG')
             return
-        
+
         try:
             data = loads(message)
         except Exception:
@@ -334,7 +334,7 @@ class GeopointServer(WebSocketHandler):
             self.generate_error(-1, 'ID_NOT_SPECIFIED')
             return
 
-        if action not in GeopointServer.api_methods:
+        if action not in API_METHODS:
             self.generate_error(id, 'UNKNOWN_ACTION')
             return
 
@@ -342,14 +342,17 @@ class GeopointServer(WebSocketHandler):
         del data['id']
 
         try:
-            yield GeopointServer.api_methods[action]](id, **data)
+            yield API_METHODS[action](self, id, **data)
         except Exception as E:
             print(E)
             self.generate_error(id, )
+
 
 app = Application([('/', GeopointServer)])
 
 app.listen(8010)
 
 print('The server is up')
+print(API_METHODS)
+
 IOLoop.current().start()
