@@ -34,8 +34,8 @@ def test():
         print(loads(result))
     
     yield from send({
-        'id': 'Time'
-        'action': 'get_time'
+        'id': 'Time',
+        'action': 'get_time',
         'junk': 'args'
     })
 
@@ -73,7 +73,7 @@ def test():
 
     yield from send({
         'id': 'Responding to friend',
-        'action': 'respond_to_friend_request'
+        'action': 'respond_to_friend_request',
         'username': 'admin',
         'session_id': session_id,
         'target': 'test_account',
