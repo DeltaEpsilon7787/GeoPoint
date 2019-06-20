@@ -141,8 +141,8 @@ class GeopointServer(WebSocketHandler):
         self.generate_success(id, data=result)
 
     @coroutine
-    @register_api('username')
     @assert_active
+    @register_api('username')
     def geopoint_get_friends(self, id, username=None):
         result = []
 
@@ -167,8 +167,8 @@ class GeopointServer(WebSocketHandler):
         self.generate_success(id, data=result)
 
     @coroutine
-    @register_api('lat', 'lon', 'username')
     @assert_active
+    @register_api('lat', 'lon', 'username')
     def geopoint_post(self, id, lat=None, lon=None, username=None):
         database_client.local.points.insert_one({
             'username': username,
@@ -179,8 +179,8 @@ class GeopointServer(WebSocketHandler):
         self.generate_success(id)
 
     @coroutine
-    @register_api('username', 'target')
     @assert_active
+    @register_api('username', 'target')
     def send_friend_request(self, id, username=None, target=None):
         if username == target:
             self.generate_error(id, 'FRIENDS_WITH_YOURSELF')
@@ -193,8 +193,8 @@ class GeopointServer(WebSocketHandler):
             self.generate_success(id, data=target)
 
     @coroutine
-    @register_api('username', 'target', 'is_accept')
     @assert_active
+    @register_api('username', 'target', 'is_accept')
     def respond_to_friend_request(self, id, username=None, target=None, is_accept=None):
         if not self.user_in_db(target):
             self.generate_error(id, 'USER_DOES_NOT_EXIST', data=target)
@@ -217,8 +217,8 @@ class GeopointServer(WebSocketHandler):
         self.outgoing_friend_reqs[target].remove(username)
 
     @coroutine
-    @register_api('username')
     @assert_active
+    @register_api('username')
     def get_my_friends(self, id, username=None):
         self.generate_success(id, data=[
             friend_datum['username2']
@@ -273,8 +273,8 @@ class GeopointServer(WebSocketHandler):
             self.generate_success(id)
             del GeopointServer.outgoing_activations[key]
 
-    @register_api('username', 'session_id')
     @assert_active
+    @register_api('username', 'session_id')
     def accept_heartbeat(self, id, username=None, session_id=None):
         if self.last_clear - time() > 5 * 60:
             self.last_clear = time()
@@ -288,8 +288,8 @@ class GeopointServer(WebSocketHandler):
         self.generate_success(id)
 
     @coroutine
-    @register_api('username')
     @assert_active
+    @register_api('username')
     def get_friend_requests(self, id, username=None):
         wannabe_friends = [
             wannabe_friend
