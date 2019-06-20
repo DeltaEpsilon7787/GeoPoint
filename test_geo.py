@@ -68,5 +68,4 @@ def test():
         print(f'{act}: {result}')
     pass
 
-
 IOLoop.current().run_sync(test)
