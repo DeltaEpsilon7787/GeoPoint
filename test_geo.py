@@ -4,22 +4,21 @@ from tornado.gen import coroutine
 from tornado.ioloop import IOLoop
 from tornado.websocket import websocket_connect
 
-
 @coroutine
 def test():
     conn = yield websocket_connect('ws://31.25.28.142:8010/websocket')
     # conn = yield websocket_connect('ws://localhost:8010/websocket')
 
-    yield conn.read_message()
+    response = yield conn.read_message()
+    print(response)
     def send(obj):
         yield conn.write_message(dumps(obj))
         result = yield conn.read_message()
-        print(loads(result))
-    
+        print(result)
+
     yield from send({
         'id': 'Time',
-        'action': 'get_time',
-        'junk': 'args'
+        'action': 'get_time'
     })
 
     yield from send({
