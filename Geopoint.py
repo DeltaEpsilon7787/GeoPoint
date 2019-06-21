@@ -81,16 +81,19 @@ class GeopointClient(WebSocketHandler):
         self.username = None
         self.guest_session = guest_session
 
+    def check_origin(self, origin):
+        return True
+
     async def open(self, username=None, password=None):
         if not self.guest_session:
             if await check_login(username, password):
                 GeopointClient.online_users[username] = self
                 self.username = username
-                self.generate_success(-1)
+                self.write_message('AUTH_SUCCESSFUL')
             else:
-                self.generate_error(-1)
+                self.write_message('AUTH_FAILED')
         else:
-            self.generate_success(-1)
+            self.write_message('GUEST_SESSION')
 
     async def call_api(self, func, id_, **data):
         try:
