@@ -1,4 +1,4 @@
-# coding: utf-8
+import asyncio
 from collections import defaultdict
 from functools import wraps
 from json import dumps, loads
@@ -8,33 +8,77 @@ from string import ascii_letters
 from time import perf_counter, time
 
 import pymongo
-from tornado.gen import coroutine
-from tornado.ioloop import IOLoop
+from attr import attrib, attrs
+from attr import attrib, attrs
+from tornado.ioloop import IOLoop, PeriodicCallback
 from tornado.web import Application, RequestHandler
 from tornado.websocket import WebSocketHandler
-
-database_client = pymongo.MongoClient(host='localhost', port=27017)
 email_client = SMTP_SSL(host='smtp.gmail.com',
                         port=465)
 email_client.login('scrapebot.test@gmail.com', 'alpha_beta')
 
-
-class InvalidSignatureError(Exception):
-    pass
-
-
 API_METHODS = {}
-class GeopointServer(WebSocketHandler):
-    active_sessions = {}
-    last_clear = time()
+def register_api(func):
+    API_METHODS[func.__name__] = inner
+    return func
 
-    outgoing_activations = {}
-    outgoing_friend_reqs = defaultdict(list)
 
-    notify_friend_req_response = defaultdict(list)
+async def check_login(username, password):
+    return database_client.local.users.find_one({
+        'username': username,
+        'password': password
+    })
+
+
+async def user_in_db(username):
+    return database_client.local.users.find_one({
+        'username': username
+    })
+
+
+async def get_friend_list(username):
+    return list(database_client.local.friendpairs.find({
+        'username1': username
+    })) + list(database_client.local.friendpairs.find({
+        'username2': username
+    }))
+
+
+@attrs
+class Activation(object):
+    username: str = attrib(hash=False)
+    key: str = attrib(hash=True)
+    email: str = attrib(hash=False)
+    time: float = attrib(hash=False)
+
+
+class GeopointClient(WebSocketHandler):
+    online_users: Dict[str, 'GeopointClient'] = {}
+
+    outgoing_activations: Dict[str, Activation] = {}
+
+    outgoing_friend_requests: Dict[str, List[str]] = defaultdict(list)
+    notify_friend_req_response: Dict[str, List[str]] = defaultdict(list)
+
+    async def open(self, username, password):
+        if await self.check_login(username, password):
+            GeopointClient.online_users[username] = self
+            self.username = username
+            self.generate_success(-1, code='AUTH_SUCCESS')
+        else:
+            self.generate_error(-1, code='NEED_AUTH')
+
+    def require_auth(func):
+        @wraps(func)
+        def inner(self, id, *args, **kwargs):
+            if self.username:
+                func(self, **args, **kwargs)
+            else:
+                self.generate_error(id, 'NEED_AUTH')
+        return inner
 
     def generate_success(self, id_, code='GENERIC_SUCCESS', data={}):
-        return self.write_message({
+        self.write_message({
             'id': id_,
             'status': 'success',
             'code': code,
@@ -42,109 +86,47 @@ class GeopointServer(WebSocketHandler):
         })
 
     def generate_error(self, id_, code='GENERIC_ERROR', data={}):
-        return self.write_message({
+        self.write_message({
             'id': id_,
             'status': 'fail',
             'code': code,
             'data': data
         })
 
-    def assert_active(func):
-        @wraps(func)
-        def inner(self, id, **params):
-            try:
-                params['username']
-                params['session_id']
-            except KeyError:
-                self.generate_error(id, 'AUTH_DENIED')
-                return False
-
-            if params['username'] not in self.active_sessions:
-                self.generate_error(params.get('id'), 'USER_NOT_LOGGED')
-                return False
-
-            if params['session_id'] != self.active_sessions[username][1]:
-                self.generate_error(params.get('id'), 'SESSION_EXPIRED')
-                return False
-            return func(**params)
-        return inner
-
-    def register_api(*signature):
-        def decorator(func):
-            @wraps(func)
-            def inner(self, id, **params):
-                params = {
-                    key: value
-                    for key, value in params.items()
-                    if value is not None
-                }
-                if {*params.keys()} < {*signature}:
-                    raise InvalidSignatureError
-                return func(self, id, **{
-                    key: params[key]
-                    for key in signature
-                })
-            API_METHODS[func.__name__] = inner
-            return inner
-        return decorator
-
-    @staticmethod
-    def check_login(username, password):
-        return database_client.local.users.find_one({
-            'username': username,
-            'password': password
-        })
-
-    @staticmethod
-    def user_in_db(username):
-        return database_client.local.users.find_one({
-            'username': username
-        })
-
-    @staticmethod
-    def get_friend_list(username):
-        return list(database_client.local.friendpairs.find({
-            'username1': username
-        })) + list(database_client.local.friendpairs.find({
-            'username2': username
-        }))
-
-    @staticmethod
-    def clear_old_activations():
-        for key, (_, time, _, _) in GeopointServer.outgoing_activations.items():
+    @classmethod
+    def clear_old_activations(cls):
+        for key, (_, time, _, _) in cls.outgoing_activations.items():
             if perf_counter() - time > 15 * 60:
-                del GeopointServer.outgoing_activations[key]
+                del cls.outgoing_activations[key]
 
     @register_api()
-    def get_time(self, id):
-        self.generate_success(id, data=time())
+    async def get_time(self, id):
+        self.generate_success(id, data=IOLoop.current().time())
 
-    @coroutine
-    @assert_active
-    @register_api('username')
-    def geopoint_get(self, id, username=None):
+    @register_api
+    @require_auth
+    async def geopoint_get(self, id):
         result = [
             {
                 'lat': hit['lat'],
                 'lon': hit['lon'],
                 'time': hit['time']
             }
-            for hit in database_client.local.points.find({'username': username})
+            for hit in database_client.local.points.find({'username': self.username})
         ]
         self.generate_success(id, data=result)
 
-    @coroutine
-    @assert_active
-    @register_api('username')
-    def geopoint_get_friends(self, id, username=None):
+    @register_api
+    @require_auth
+    async def geopoint_get_friends(self, id):
         result = []
 
-        for friend_datum in self.get_friend_list(username):
+        for friend_datum in self.get_friend_list(self.username):
             friend_name = (
                 friend_datum['username2']
-                if friend_datum['username1'] == username
+                if friend_datum['username1'] == self.username
                 else friend_datum['username1']
-                if friend_datum['username1'] != username
+                if friend_datum['username1'] != self.username
                 else ''
             )
 
@@ -159,10 +141,9 @@ class GeopointServer(WebSocketHandler):
             )
         self.generate_success(id, data=result)
 
-    @coroutine
-    @assert_active
-    @register_api('lat', 'lon', 'username')
-    def geopoint_post(self, id, lat=None, lon=None, username=None):
+    @register_api
+    @require_auth
+    async def geopoint_post(self, id, lat=None, lon=None):
         database_client.local.points.insert_one({
             'username': username,
             'time': time(),
@@ -171,58 +152,55 @@ class GeopointServer(WebSocketHandler):
         })
         self.generate_success(id)
 
-    @coroutine
-    @assert_active
-    @register_api('username', 'target')
-    def send_friend_request(self, id, username=None, target=None):
-        if username == target:
+    @register_api
+    @require_auth
+    async def send_friend_request(self, id, target=None):
+        if self.username == target:
             self.generate_error(id, 'FRIENDS_WITH_YOURSELF')
-        elif not self.user_in_db(target):
+        elif not await self.user_in_db(target):
             self.generate_error(id, 'USER_DOES_NOT_EXIST', data=target)
-        elif target in self.outgoing_friend_reqs[username]:
+        elif target in self.outgoing_friend_reqs[self.username]:
             self.generate_error(id, 'REPEAT_FRIEND_REQUEST', data=target)
+        elif target in await self.get_my_friends():
+            self.generate_error(id, 'ALREADY_FRIENDS', data=target)
         else:
-            self.outgoing_friend_reqs[username].append(target)
+            self.outgoing_friend_reqs[self.username].append(target)
             self.generate_success(id, data=target)
 
-    @coroutine
-    @assert_active
-    @register_api('username', 'target', 'is_accept')
-    def respond_to_friend_request(self, id, username=None, target=None, is_accept=None):
+    @register_api
+    @require_auth
+    async def accept_friend_request(self, id, target=None):
         if not self.user_in_db(target):
             self.generate_error(id, 'USER_DOES_NOT_EXIST', data=target)
             return
-        if username not in self.outgoing_friend_reqs[target]:
-            self.generate_error(
-                id, 'USER_NOT_SENT_FRIEND_REQUEST', data=target)
+        if self.username not in self.outgoing_friend_reqs[target]:
+            self.generate_error(id, 'USER_NOT_SENT_FRIEND_REQUEST', data=target)
             return
 
         if is_accept:
             database_client.local.friendpairs.insert({
                 'username1': target,
-                'username2': username
+                'username2': self.username
             })
             self.generate_success(id, 'FRIEND_ADDED', data=target)
         else:
             self.generate_success(id, 'FRIEND_NOT_ADDED', data=target)
         self.notify_friend_req_response[target].append(
-            (username, is_accept))
-        self.outgoing_friend_reqs[target].remove(username)
+            (self.username, is_accept))
+        self.outgoing_friend_reqs[target].remove(self.username)
 
-    @coroutine
-    @assert_active
-    @register_api('username')
-    def get_my_friends(self, id, username=None):
+    @register_api
+    @require_auth
+    async def get_my_friends(self, id):
         self.generate_success(id, data=[
             friend_datum['username2']
-            if friend_datum['username1'] == username
+            if friend_datum['username1'] == self.username
             else friend_datum['username1']
-            for friend_datum in self.get_friend_list(username)
+            for friend_datum in await self.get_friend_list(self.username)
         ])
 
-    @coroutine
-    @register_api('username', 'password', 'email')
-    def register(self, id, username=None, password=None, email=None):
+    @register_api
+    async def register(self, id, username=None, password=None, email=None):
         self.clear_old_activations()
 
         if email in self.outgoing_activations:
@@ -249,41 +227,25 @@ class GeopointServer(WebSocketHandler):
             )
             self.generate_success(id)
 
-    @coroutine
-    @register_api('key')
-    def activate(self, id, key=None):
+    @register_api
+    async def activate(self, id, key=None):
         self.clear_old_activations()
 
         if key not in self.outgoing_activations:
             self.generate_error(id, 'INVALID_KEY')
         else:
-            email, _, username, password = GeopointServer.outgoing_activations[key]
+            email, _, username, password = GeopointClient.outgoing_activations[key]
             database_client.local.users.insert_one({
                 'username': username,
                 'password': password,
                 'email': email
             })
             self.generate_success(id)
-            del GeopointServer.outgoing_activations[key]
+            del GeopointClient.outgoing_activations[key]
 
-    @assert_active
-    @register_api('username', 'session_id')
-    def accept_heartbeat(self, id, username=None, session_id=None):
-        if self.last_clear - time() > 5 * 60:
-            self.last_clear = time()
-            for key, (last_ping, _) in self.active_sessions.items():
-                if last_ping - time() > 2 * 60:
-                    del self.active_sessions[key]
-
-        if session_id == self.active_sessions[username][1]:
-            self.active_sessions[username][0] = time()
-
-        self.generate_success(id)
-
-    @coroutine
-    @assert_active
-    @register_api('username')
-    def get_friend_requests(self, id, username=None):
+    @register_api
+    @require_auth
+    async def get_friend_requests(self, id):
         wannabe_friends = [
             wannabe_friend
             for wannabe_friend, requests in self.outgoing_friend_reqs.items()
@@ -292,23 +254,9 @@ class GeopointServer(WebSocketHandler):
 
         self.generate_success(id, data=wannabe_friends)
 
-    @coroutine
-    @register_api('username', 'password')
-    def auth(self, id, username=None, password=None):
-        if self.check_login(username, password):
-            generated_id = ''.join(choice(ascii_letters) for _ in range(50))
-            self.active_sessions[username] = [time(), generated_id]
-            self.generate_success(id, data=generated_id)
-        else:
-            self.generate_error(id)
-
-    @coroutine
-    def on_message(self, message):
+    async def on_message(self, message):
+        self.current_user()
         print(message)
-        if len(message) > 10000:
-            self.generate_error(-1, 'MESSAGE_TOO_LONG')
-            return
-
         try:
             data = loads(message)
         except Exception:
@@ -341,11 +289,18 @@ class GeopointServer(WebSocketHandler):
             self.generate_error(id, )
 
 
-app = Application([('/', GeopointServer)])
+app = Application(
+    [
+        ('/websocket/([a-zA-Z0-9_]+)/([a-f0-9]{64})', GeopointClient)
+    ],
+    websocket_ping_interval=5,
+    websocket_ping_timeout=300
+)
 
 app.listen(8010)
 
 print('The server is up')
 print(API_METHODS)
 
+PeriodicCallback(GeopointClient.send_friend_requests, 5000)
 IOLoop.current().start()
