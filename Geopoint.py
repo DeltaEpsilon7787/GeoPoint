@@ -20,8 +20,6 @@ email_client.login('scrapebot.test@gmail.com', 'alpha_beta')
 
 API_METHODS = {}
 
-logging.basicConfig()
-
 def register_api(func):
     API_METHODS[func.__name__] = func
     return func
@@ -102,10 +100,10 @@ class GeopointClient(WebSocketHandler):
             await func(self, id_, **data)
         except RuntimeError as E:
             self.generate_error(-1, 'INTERNAL_ERROR')
-            logging.error(E)
+            print(E)
 
     def on_message(self, message):
-        logging.info(message)
+        print(message)
         try:
             data = loads(message)
         except RuntimeError:
