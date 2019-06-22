@@ -274,7 +274,11 @@ class GeopointClient(WebSocketHandler):
     async def register(self, id_, username=None, password=None, email=None):
         self.clear_old_activations()
 
-        if email in self.outgoing_activations:
+        outgoing_activations = self.outgoing_activations.copy()
+        if any(
+            activation.username == username or activation.email == email
+            for activation in outgoing_activations.values()
+            ):
             self.generate_error(id_, 'ACTIVATION_IN_PROGRESS')
         elif await user_in_db(username):
             self.generate_error(id_, 'USER_ALREADY_EXISTS', data=username)
@@ -302,8 +306,9 @@ class GeopointClient(WebSocketHandler):
     @register_api
     async def activate(self, id_, key=None):
         self.clear_old_activations()
-
-        if key not in self.outgoing_activations:
+        
+        outgoing_activations = self.outgoing_activations.copy()
+        if key not in outgoing_activations:
             self.generate_error(id_, 'INVALID_KEY')
         else:
             # email, _, username, password = GeopointClient.outgoing_activations[key]
