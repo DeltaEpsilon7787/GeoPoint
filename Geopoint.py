@@ -154,8 +154,8 @@ class GeopointClient(WebSocketHandler):
 
     @classmethod
     def clear_old_activations(cls):
-        for key, (_, time, _, _) in cls.outgoing_activations.items():
-            if perf_counter() - time > 15 * 60:
+        for key, activation in cls.outgoing_activations.items():
+            if perf_counter() - activation.time > 15 * 60:
                 del cls.outgoing_activations[key]
 
     @register_api
@@ -307,11 +307,12 @@ class GeopointClient(WebSocketHandler):
         if key not in self.outgoing_activations:
             self.generate_error(id_, 'INVALID_KEY')
         else:
-            email, _, username, password = GeopointClient.outgoing_activations[key]
+            # email, _, username, password = GeopointClient.outgoing_activations[key]
+            activation = GeopointClient.outgoing_activations[key]
             database_client.local.users.insert_one({
-                'username': username,
-                'password': password,
-                'email': email
+                'username': activation.username,
+                'password': activation.password,
+                'email': activation.email
             })
             self.generate_success(id_)
             del GeopointClient.outgoing_activations[key]
