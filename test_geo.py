@@ -17,9 +17,11 @@ def test():
         print(result)
 
     yield from send({
-        'id': 'Activate',
-        'action': 'activate',
-        'key': '934566',
+        'id': 'Register',
+        'action': 'register',
+        'username': 'Spectren',
+        'password': '5deb3a528d677361d04357a661b6ee7a7c0424a592914ad18b3092e891b0fd15',
+        'email': 'b1512549@urhen.com'
     })
 
     yield from send({

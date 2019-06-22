@@ -20,6 +20,7 @@ email_client.login('scrapebot.test@gmail.com', 'alpha_beta')
 
 API_METHODS = {}
 
+logging.basicConfig()
 
 def register_api(func):
     API_METHODS[func.__name__] = func
