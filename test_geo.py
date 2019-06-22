@@ -17,6 +17,14 @@ def test():
         print(result)
 
     yield from send({
+        'id': 'Register',
+        'action': 'register',
+        'username': 'tester',
+        'password': '187c6c9e881d33ab9c94cb369d76f8d16e505143bd6fedbfe80ccf3f413d98d2',
+        'email': 'b1512549@urhen.com'
+    })
+
+    yield from send({
         'id': 'Time',
         'action': 'get_time'
     })

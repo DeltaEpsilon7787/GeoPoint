@@ -85,6 +85,7 @@ class GeopointClient(WebSocketHandler):
         return True
 
     async def open(self, username=None, password=None):
+
         if not self.guest_session:
             if await check_login(username, password):
                 GeopointClient.online_users[username] = self
@@ -276,7 +277,7 @@ class GeopointClient(WebSocketHandler):
 
         if email in self.outgoing_activations:
             self.generate_error(id_, 'ACTIVATION_IN_PROGRESS')
-        elif user_in_db(username):
+        elif await user_in_db(username):
             self.generate_error(id_, 'USER_ALREADY_EXISTS', data=username)
         else:
             generated_key = ''.join(choice(digits) for _ in range(6))
