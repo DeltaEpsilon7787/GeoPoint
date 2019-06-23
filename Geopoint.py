@@ -66,7 +66,7 @@ class Activation(object):
         self.time = perf_counter()
 
     def __hash__(self):
-        return hash(self.time)
+        return hash(self.username)
 
 
 class GeopointClient(WebSocketHandler):
@@ -153,7 +153,8 @@ class GeopointClient(WebSocketHandler):
 
     @classmethod
     def clear_old_activations(cls):
-        for key, activation in cls.outgoing_activations.items():
+        outgoing_activations = cls.outgoing_activations.copy()
+        for key, activation in outgoing_activations:
             if perf_counter() - activation.time > 15 * 60:
                 del cls.outgoing_activations[key]
 
@@ -276,7 +277,7 @@ class GeopointClient(WebSocketHandler):
 
         outgoing_activations = self.outgoing_activations.copy()
         if any(
-            activation.username == username or activation.email == email
+            (activation.username == username or activation.email == email)
             for activation in outgoing_activations.values()
             ):
             self.generate_error(id_, 'ACTIVATION_IN_PROGRESS')
