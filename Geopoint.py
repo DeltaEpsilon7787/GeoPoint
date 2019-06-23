@@ -153,10 +153,11 @@ class GeopointClient(WebSocketHandler):
 
     @classmethod
     def clear_old_activations(cls):
-        outgoing_activations = cls.outgoing_activations.copy()
-        for key, activation in outgoing_activations:
-            if perf_counter() - activation.time > 15 * 60:
-                del cls.outgoing_activations[key]
+        cls.outgoing_activations = {
+            key: activation
+            for key, activation in cls.outgoing_activations.items()
+            if perf_counter() - activation.time < 15 * 60
+        }
 
     @register_api
     async def get_time(self, id_):
@@ -275,10 +276,9 @@ class GeopointClient(WebSocketHandler):
     async def register(self, id_, username=None, password=None, email=None):
         self.clear_old_activations()
 
-        outgoing_activations = self.outgoing_activations.copy()
         if any(
             (activation.username == username or activation.email == email)
-            for activation in outgoing_activations.values()
+            for activation in self.outgoing_activations.values()
             ):
             self.generate_error(id_, 'ACTIVATION_IN_PROGRESS')
         elif await user_in_db(username):
@@ -308,19 +308,17 @@ class GeopointClient(WebSocketHandler):
     async def activate(self, id_, key=None):
         self.clear_old_activations()
         
-        outgoing_activations = self.outgoing_activations.copy()
-        if key not in outgoing_activations:
+        if key not in self.outgoing_activations:
             self.generate_error(id_, 'INVALID_KEY')
         else:
-            # email, _, username, password = GeopointClient.outgoing_activations[key]
-            activation = GeopointClient.outgoing_activations[key]
+            activation = self.outgoing_activations[key]
             database_client.local.users.insert_one({
                 'username': activation.username,
                 'password': activation.password,
                 'email': activation.email
             })
             self.generate_success(id_)
-            del GeopointClient.outgoing_activations[key]
+            del self.outgoing_activations[key]
 
 
 app = Application(
