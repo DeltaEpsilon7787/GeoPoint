@@ -14,15 +14,34 @@ from tornado.web import Application
 from tornado.websocket import WebSocketHandler
 
 database_client = pymongo.MongoClient(host='localhost', port=27017)
-email_client = SMTP_SSL(host='smtp.gmail.com',
-                        port=465)
-email_client.login('scrapebot.test@gmail.com', 'alpha_beta')
-
 API_METHODS = {}
 
 def register_api(func):
     API_METHODS[func.__name__] = func
     return func
+
+
+class EMailSender(object):
+    _email_client = None
+
+    @classmethod
+    def _login(cls):
+        cls._email_client = SMTP_SSL(host='smtp.gmail.com', port=465)
+        cls._email_client.login('scrapebot.test@gmail.com', 'alpha_beta')
+
+    @classmethod
+    def send_mail(cls, *args):
+        if cls._email_client is None:
+            self._login()
+
+        try:
+            cls._email_client.sendmail(*args)
+        except:
+            cls._login()
+            try:
+                cls._email_client.send_mail(*args)
+            except:
+                raise
 
 
 async def check_login(username, password):
@@ -289,7 +308,7 @@ class GeopointClient(WebSocketHandler):
                 username, password, email
             )
 
-            email_client.sendmail(
+            EMailSender.send_mail(
                 'Geopoint Bot',
                 [email],
                 (
