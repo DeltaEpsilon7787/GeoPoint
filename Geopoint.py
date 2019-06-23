@@ -32,7 +32,7 @@ class EMailSender(object):
     @classmethod
     def send_mail(cls, *args):
         if cls._email_client is None:
-            self._login()
+            cls._login()
 
         try:
             cls._email_client.sendmail(*args)
