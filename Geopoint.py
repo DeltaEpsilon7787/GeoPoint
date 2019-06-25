@@ -256,6 +256,26 @@ class GeopointClient(WebSocketHandler):
                                             'FRIEND_REQUEST', data=self.username)
 
     @register_api
+    @require_api
+    async def delete_friend(self, id_, target=None):
+        if self.username == target:
+            self.generate_error(id_, 'REMOVE_YOURSELF')
+        elif not await user_in_db(target):
+            self.generate_error(id_, 'USER_DOES_NOT_EXIST', data=target)
+        elif target not in await get_friend_list(self.username):
+            self.generate_error(id_, 'ALREADY_NOT_FRIENDS', data=target)
+        else:
+            database_client.local.friendpairs.delete_one({
+                'username1': self.username
+                'username2': target
+            })
+            database_client.local.friendpairs.delete_one({
+                'username2': self.username
+                'username1': target
+            })
+            self.generate_success(id_, data=target)
+
+    @register_api
     @require_auth
     async def accept_friend_request(self, id_, target=None):
         if not await user_in_db(target):
@@ -348,6 +368,11 @@ class GeopointClient(WebSocketHandler):
         with open(path_join(getcwd(), 'avatars', f'{self.username}.{extension}'), 'wb') as output:
             print(data, file=output)
         self.generate_success(id_)
+
+    @register_api
+    @require_auth
+    async def get_friend_requests(self, id_):
+        return self.outgoing_friend_requests[self.username]
 
     @register_api
     async def register(self, id_, username=None, password=None, email=None):
