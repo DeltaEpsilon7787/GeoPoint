@@ -331,7 +331,7 @@ class GeopointClient(WebSocketHandler):
     @register_api
     @require_auth
     async def append_speed_point(self, id_, speed=None):
-        assert speed >= 0:
+        assert speed >= 0
         database_client.local.users.update_one({
             'username': self.username
         }, {
