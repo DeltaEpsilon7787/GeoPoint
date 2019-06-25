@@ -277,7 +277,7 @@ class GeopointClient(WebSocketHandler):
                     {
                         'username1': target,
                         'username2': self.username
-                    }
+                    }z
                 ]
             })
             self.generate_success(id_, data=target)
@@ -297,7 +297,7 @@ class GeopointClient(WebSocketHandler):
                 id_, 'USER_NOT_SENT_FRIEND_REQUEST', data=target)
             return
 
-        database_client.local.friendpairs.insert({
+        database_client.local.friendpairs.insert_one({
             'username1': target,
             'username2': self.username
         })
