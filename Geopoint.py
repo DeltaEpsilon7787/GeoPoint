@@ -311,7 +311,7 @@ class GeopointClient(WebSocketHandler):
             self.generate_success(id_, data={
                 'target': target,
                 'email': user['email'],
-                'avg_speed': sum(user['speed_points']) / user['speed_points'],
+                'avg_speed': sum(user['speed_points']) / len(user['speed_points']),
                 'total_distance': user['total_distance']
             })
 
