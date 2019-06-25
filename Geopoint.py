@@ -300,7 +300,7 @@ class GeopointClient(WebSocketHandler):
         })
         self.generate_success(id_, data=target)
 
-        del self.outgoing_friend_requests[target][self.username]
+        self.outgoing_friend_requests[target].remove(self.username)
 
     @register_api
     @require_auth
@@ -315,7 +315,7 @@ class GeopointClient(WebSocketHandler):
 
         self.generate_success(id_, data=target)
 
-        del self.outgoing_friend_requests[target][self.username]
+        self.outgoing_friend_requests[target].remove(self.username)
 
     @register_api
     @require_auth
