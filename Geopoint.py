@@ -16,6 +16,7 @@ from tornado.websocket import WebSocketHandler
 database_client = pymongo.MongoClient(host='localhost', port=27017)
 API_METHODS = {}
 
+
 def register_api(func):
     API_METHODS[func.__name__] = func
     return func
@@ -89,7 +90,7 @@ class Activation(object):
 
 
 class GeopointClient(WebSocketHandler):
-    online_users: Dict[str, 'GeopointClient'] = {}
+    online_users: Dict[str, List['GeopointClient']] = defaultdict(list)
 
     outgoing_activations: Dict[str, Activation] = {}
 
@@ -103,10 +104,9 @@ class GeopointClient(WebSocketHandler):
         return True
 
     async def open(self, username=None, password=None):
-
         if not self.guest_session:
             if await check_login(username, password):
-                GeopointClient.online_users[username] = self
+                GeopointClient.online_users[username].append(self)
                 self.username = username
                 self.write_message('AUTH_SUCCESSFUL')
             else:
@@ -148,11 +148,13 @@ class GeopointClient(WebSocketHandler):
         del data['action']
         del data['id']
 
-        IOLoop.current().spawn_callback(self.call_api, API_METHODS[action], id_, **data)
+        IOLoop.current().spawn_callback(
+            self.call_api, API_METHODS[action], id_, **data)
 
     def on_connection_close(self):
         if self.username:
-            del GeopointClient.online_users[self.username]
+            if self in GeopointClient.online_users[self.username]:
+                GeopointClient.online_users[self.username].remove(self)
 
     def generate_success(self, id_, code='GENERIC_SUCCESS', data: Any = None):
         self.write_message({
@@ -247,7 +249,8 @@ class GeopointClient(WebSocketHandler):
             self.generate_success(id_, data=target)
 
             if target in self.online_users:
-                self.online_users[target].generate_success(-1, 'FRIEND_REQUEST', data=self.username)
+                for client in self.online_users[target]:
+                    client.generate_success(-1, 'FRIEND_REQUEST', data=self.username)
 
     @register_api
     @require_auth
@@ -256,7 +259,8 @@ class GeopointClient(WebSocketHandler):
             self.generate_error(id_, 'USER_DOES_NOT_EXIST', data=target)
             return
         if self.username not in self.outgoing_friend_requests[target]:
-            self.generate_error(id_, 'USER_NOT_SENT_FRIEND_REQUEST', data=target)
+            self.generate_error(
+                id_, 'USER_NOT_SENT_FRIEND_REQUEST', data=target)
             return
 
         database_client.local.friendpairs.insert({
@@ -274,7 +278,8 @@ class GeopointClient(WebSocketHandler):
             self.generate_error(id_, 'USER_DOES_NOT_EXIST', data=target)
             return
         if self.username not in self.outgoing_friend_requests[target]:
-            self.generate_error(id_, 'USER_NOT_SENT_FRIEND_REQUEST', data=target)
+            self.generate_error(
+                id_, 'USER_NOT_SENT_FRIEND_REQUEST', data=target)
             return
 
         self.generate_success(id_, data=target)
@@ -298,7 +303,7 @@ class GeopointClient(WebSocketHandler):
         if any(
             (activation.username == username or activation.email == email)
             for activation in self.outgoing_activations.values()
-            ):
+        ):
             self.generate_error(id_, 'ACTIVATION_IN_PROGRESS')
         elif await user_in_db(username):
             self.generate_error(id_, 'USER_ALREADY_EXISTS', data=username)
@@ -326,7 +331,7 @@ class GeopointClient(WebSocketHandler):
     @register_api
     async def activate(self, id_, key=None):
         self.clear_old_activations()
-        
+
         if key not in self.outgoing_activations:
             self.generate_error(id_, 'INVALID_KEY')
         else:
@@ -342,7 +347,8 @@ class GeopointClient(WebSocketHandler):
 
 app = Application(
     [
-        ('/websocket/([a-zA-Z0-9_]+)/([a-f0-9]{64})', GeopointClient, {'guest_session': False}),
+        ('/websocket/([a-zA-Z0-9_]+)/([a-f0-9]{64})',
+         GeopointClient, {'guest_session': False}),
         ('/websocket', GeopointClient, {'guest_session': True})
     ],
     websocket_ping_interval=5,
