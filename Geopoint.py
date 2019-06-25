@@ -63,12 +63,13 @@ async def user_in_db(username):
 async def get_friend_list(username):
     return [
         {*pair.values} - {username}
-        for pair in database_client.local.friendpairs.find({
+        for pair in list(database_client.local.friendpairs.find({
             '$or': [
                 {'username1': username},
                 {'username2': username},
             ]
-        })]
+        }))
+    ]
 
 
 def require_auth(func):
