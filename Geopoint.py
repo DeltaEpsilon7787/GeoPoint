@@ -256,7 +256,7 @@ class GeopointClient(WebSocketHandler):
                                             'FRIEND_REQUEST', data=self.username)
 
     @register_api
-    @require_api
+    @require_auth
     async def delete_friend(self, id_, target=None):
         if self.username == target:
             self.generate_error(id_, 'REMOVE_YOURSELF')
