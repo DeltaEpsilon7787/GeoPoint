@@ -2,6 +2,8 @@ import logging
 from collections import defaultdict
 from functools import wraps
 from json import loads
+from os import mkdir
+from os.path import join as path_join
 from random import choice
 from smtplib import SMTP_SSL
 from string import digits
@@ -10,7 +12,7 @@ from typing import Any, Dict, List
 
 import pymongo
 from tornado.ioloop import IOLoop
-from tornado.web import Application
+from tornado.web import Application, StaticFileHandler
 from tornado.websocket import WebSocketHandler
 
 database_client = pymongo.MongoClient(host='localhost', port=27017)
@@ -250,7 +252,8 @@ class GeopointClient(WebSocketHandler):
 
             if target in self.online_users:
                 for client in self.online_users[target]:
-                    client.generate_success(-1, 'FRIEND_REQUEST', data=self.username)
+                    client.generate_success(-1,
+                                            'FRIEND_REQUEST', data=self.username)
 
     @register_api
     @require_auth
@@ -297,6 +300,56 @@ class GeopointClient(WebSocketHandler):
         ])
 
     @register_api
+    @require_auth
+    async def get_user_info(self, id_, target=None):
+        if not await user_in_db(target):
+            self.generate_error(id_)
+        else:
+            user = database_client.local.users.find_one({
+                'username': self.target
+            })
+            self.generate_success(id_, data={
+                'target': target,
+                'email': user['email'],
+                'avg_speed': sum(user['speed_points']) / user['speed_points'],
+                'total_distance': user['total_distance']
+            })
+
+    @register_api
+    @require_auth
+    async def increment_distance(self, id_, distance_delta=None):
+        assert distance_delta >= 0
+        database_client.local.users.update_one({
+            'username': self.username
+        }, {
+            'total_distance': {
+                '$inc': distance_delta
+            }
+        })
+        self.generate_success(id_)
+
+    @register_api
+    @require_auth
+    async def append_speed_point(self, id_, speed=None):
+        assert speed >= 0:
+        database_client.local.users.update_one({
+            'username': self.username
+        }, {
+            'speed_points': {
+                '$push': speed
+            }
+        })
+        self.generate_success(id_)
+
+    @register_api
+    @require_auth
+    async def set_avatar(self, id_, data=None, extension=None):
+        data = bytes(data)
+        with open(path_join(__dir__, 'avatars', f'{self.username}.{extension}'), 'wb') as output:
+            print(data, file=output)
+        self.generate_success(id_)
+
+    @register_api
     async def register(self, id_, username=None, password=None, email=None):
         self.clear_old_activations()
 
@@ -339,7 +392,9 @@ class GeopointClient(WebSocketHandler):
             database_client.local.users.insert_one({
                 'username': activation.username,
                 'password': activation.password,
-                'email': activation.email
+                'email': activation.email,
+                'speed_points': [0],
+                'total_distance': 0
             })
             self.generate_success(id_)
             del self.outgoing_activations[key]
@@ -349,11 +404,18 @@ app = Application(
     [
         ('/websocket/([a-zA-Z0-9_]+)/([a-f0-9]{64})',
          GeopointClient, {'guest_session': False}),
-        ('/websocket', GeopointClient, {'guest_session': True})
+        ('/websocket', GeopointClient, {'guest_session': True}),
+        ('/avatar/(.+)', StaticFileHandler,
+         {'path': path_join(__dir__, 'avatars')}),
     ],
     websocket_ping_interval=5,
     websocket_ping_timeout=300
 )
+
+try:
+    mkdir('avatars')
+except IOError:
+    pass
 
 app.listen(8010)
 

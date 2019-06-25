@@ -1,3 +1,4 @@
 .vscode/launch.json
 test_geo.py
 .vscode/.ropeproject/objectdb
+.vscode/.ropeproject/config.py
