@@ -61,12 +61,14 @@ async def user_in_db(username):
 
 
 async def get_friend_list(username):
-    return list(database_client.local.friendpairs.find({
-        '$or': [
-            {'username1': username},
-            {'username2': username},
-        ]
-    }))
+    return [
+        {*pair.values} - {username}
+        for pair in database_client.local.friendpairs.find({
+            '$or': [
+                {'username1': username},
+                {'username2': username},
+            ]
+        })]
 
 
 def require_auth(func):
@@ -317,12 +319,7 @@ class GeopointClient(WebSocketHandler):
     @register_api
     @require_auth
     async def get_my_friends(self, id_):
-        self.generate_success(id_, data=[
-            friend_datum['username2']
-            if friend_datum['username1'] == self.username
-            else friend_datum['username1']
-            for friend_datum in await get_friend_list(self.username)
-        ])
+        self.generate_success(id_, data=await get_friend_list(self.username))
 
     @register_api
     @require_auth
