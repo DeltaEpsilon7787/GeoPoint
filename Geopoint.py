@@ -62,9 +62,10 @@ async def user_in_db(username):
 
 async def get_friend_list(username):
     return list(database_client.local.friendpairs.find({
-        'username1': username
-    })) + list(database_client.local.friendpairs.find({
-        'username2': username
+        '$or': [
+            {'username1': username},
+            {'username2': username},
+        ]
     }))
 
 
@@ -266,12 +267,14 @@ class GeopointClient(WebSocketHandler):
             self.generate_error(id_, 'ALREADY_NOT_FRIENDS', data=target)
         else:
             database_client.local.friendpairs.delete_one({
-                'username1': self.username,
-                'username2': target
-            })
-            database_client.local.friendpairs.delete_one({
-                'username2': self.username,
-                'username1': target
+                '$or': [
+                    {
+                        'username1': self.username
+                    },
+                    {
+                        'username2': self.username
+                    }
+                ]
             })
             self.generate_success(id_, data=target)
 
