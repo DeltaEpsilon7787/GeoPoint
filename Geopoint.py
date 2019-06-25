@@ -269,9 +269,11 @@ class GeopointClient(WebSocketHandler):
             database_client.local.friendpairs.delete_one({
                 '$or': [
                     {
-                        'username1': self.username
+                        'username1': self.username,
+                        'username2': target
                     },
                     {
+                        'username1': target,
                         'username2': self.username
                     }
                 ]
