@@ -277,7 +277,7 @@ class GeopointClient(WebSocketHandler):
                     {
                         'username1': target,
                         'username2': self.username
-                    }z
+                    }
                 ]
             })
             self.generate_success(id_, data=target)
@@ -378,7 +378,7 @@ class GeopointClient(WebSocketHandler):
     @register_api
     @require_auth
     async def get_friend_requests(self, id_):
-        self.generate_success(id_, data=self.outgoing_friend_requests[self.username])
+        self.generate_success(id_, data=self.outgoing_friend_requests[self.username]    )
 
     @register_api
     @require_auth
