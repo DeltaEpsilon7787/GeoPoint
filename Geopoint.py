@@ -306,7 +306,7 @@ class GeopointClient(WebSocketHandler):
             self.generate_error(id_)
         else:
             user = database_client.local.users.find_one({
-                'username': self.target
+                'username': target
             })
             self.generate_success(id_, data={
                 'target': target,
