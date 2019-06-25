@@ -322,8 +322,8 @@ class GeopointClient(WebSocketHandler):
         database_client.local.users.update_one({
             'username': self.username
         }, {
-            'total_distance': {
-                '$inc': distance_delta
+            '$inc': {
+                'total_distance': distance_delta
             }
         })
         self.generate_success(id_)
@@ -335,8 +335,8 @@ class GeopointClient(WebSocketHandler):
         database_client.local.users.update_one({
             'username': self.username
         }, {
-            'speed_points': {
-                '$push': speed
+            '$push': {
+                'speed_points': speed
             }
         })
         self.generate_success(id_)
