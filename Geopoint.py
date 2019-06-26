@@ -208,15 +208,7 @@ class GeopointClient(WebSocketHandler):
     async def geopoint_get_friends(self, id_):
         result = []
 
-        for friend_datum in await get_friend_list(self.username):
-            friend_name = (
-                friend_datum['username2']
-                if friend_datum['username1'] == self.username
-                else friend_datum['username1']
-                if friend_datum['username1'] != self.username
-                else ''
-            )
-
+        for friend_name in await get_friend_list(self.username):
             result.extend(
                 {
                     'lat': hit['lat'],
