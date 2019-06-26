@@ -303,6 +303,10 @@ class GeopointClient(WebSocketHandler):
         })
         self.generate_success(id_, data=target)
 
+        if target in self.online_users:
+            for client in self.online_users[target]:
+                client.generate_success('-1', 'FRIEND_LIST_CHANGED', data=self.username)
+
         self.outgoing_friend_requests[target].remove(self.username)
 
     @register_api
@@ -441,7 +445,7 @@ app = Application(
         ('/websocket/([a-zA-Z0-9_]+)/([a-f0-9]{64})',
          GeopointClient, {'guest_session': False}),
         ('/websocket', GeopointClient, {'guest_session': True}),
-        ('/avatar/(.+)', StaticFileHandler,
+        ('/avatar/(.+)', StaticFileHandler),
          {'path': path_join(getcwd(), 'avatars')}),
     ],
     websocket_ping_interval=5,
