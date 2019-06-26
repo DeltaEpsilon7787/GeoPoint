@@ -437,8 +437,7 @@ app = Application(
         ('/websocket/([a-zA-Z0-9_]+)/([a-f0-9]{64})',
          GeopointClient, {'guest_session': False}),
         ('/websocket', GeopointClient, {'guest_session': True}),
-        ('/avatar/(.+)', StaticFileHandler),
-         {'path': path_join(getcwd(), 'avatars')}),
+        ('/avatar/(.+)', StaticFileHandler, {'path': path_join(getcwd(), 'avatars')}),
     ],
     websocket_ping_interval=5,
     websocket_ping_timeout=300
