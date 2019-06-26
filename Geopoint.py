@@ -278,6 +278,10 @@ class GeopointClient(WebSocketHandler):
                 for client in self.online_users[target]:
                     client.generate_success(-1, 'FRIEND_LIST_CHANGED', data=self.username)
 
+            if self.username in self.online_users:
+                for client in self.online_users[self.username]:
+                    client.generate_success(-1, 'FRIEND_LIST_CHANGED', data=self.username)
+
     @register_api
     @require_auth
     async def accept_friend_request(self, id_, target=None):
@@ -298,6 +302,10 @@ class GeopointClient(WebSocketHandler):
         if target in self.online_users:
             for client in self.online_users[target]:
                 client.generate_success('-1', 'FRIEND_LIST_CHANGED', data=self.username)
+
+        if self.username in self.online_users:
+            for client in self.online_users[self.username]:
+                client.generate_success(-1, 'FRIEND_LIST_CHANGED', data=self.username)
 
         self.outgoing_friend_requests[target].remove(self.username)
 
