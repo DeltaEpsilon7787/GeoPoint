@@ -252,7 +252,7 @@ class GeopointClient(WebSocketHandler):
             'username': self.username
         }))
 
-        if len(points > 20000):
+        if len(points) > 20000:
             self.generate_error(id_, 'TOO_MANY_POINTS')
             return
 
@@ -266,7 +266,7 @@ class GeopointClient(WebSocketHandler):
             }
         })
 
-        if len(points > 1):
+        if len(points) > 1:
             points.sort(key=itemgetter('time'))
 
             distance_deltas = [
