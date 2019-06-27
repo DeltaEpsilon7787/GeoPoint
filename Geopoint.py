@@ -266,34 +266,6 @@ class GeopointClient(WebSocketHandler):
             }
         })
 
-        if len(points) > 1:
-            points.sort(key=itemgetter('time'))
-
-            distance_deltas = [
-                haversine_distance(
-                    alpha['lat'], alpha['lon'], beta['lat'], beta['lon'])
-                for alpha, beta in zip(points[:-1], points[1:])
-            ]
-
-            time_deltas = [
-                beta['time'] - alpha['time']
-                for alpha, beta in zip(points[:-1], points[1:])
-            ]
-
-            speed_points = [
-                dst / tm
-                for dst, tm in zip(distance_deltas, time_deltas)
-            ]
-
-            database_client.local.users.update_one({
-                'username': self.username
-            }, {
-                '$set': {
-                    'total_distance': sum(distance_deltas),
-                    'avg_speed': sum(speed_points) / len(speed_points)
-                }
-            })
-
         self.generate_success(id_)
 
     @register_api
@@ -421,7 +393,7 @@ class GeopointClient(WebSocketHandler):
                 }
             }))
 
-            if len(points > 1):
+            if len(points) > 1:
                 points.sort(key=itemgetter('time'))
 
                 distance_deltas = [
