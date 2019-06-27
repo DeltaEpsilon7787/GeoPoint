@@ -308,6 +308,7 @@ class GeopointClient(WebSocketHandler):
         if self.username in self.online_users:
             for client in self.online_users[self.username]:
                 client.generate_success(-1, 'FRIEND_LIST_CHANGED', data=self.username)
+                client.generate_success(-1, 'FRIEND_REQUEST_LIST_CHANGED', data=target)
 
         self.outgoing_friend_requests[target].remove(self.username)
         self.inbound_friend_requests[self.username].remove(target)
@@ -324,6 +325,9 @@ class GeopointClient(WebSocketHandler):
             return
 
         self.generate_success(id_, data=target)
+        if self.username in self.online_users:
+            for client in self.online_users[self.username]:
+                client.generate_success(-1, 'FRIEND_REQUEST_LIST_CHANGED', data=target)
 
         self.outgoing_friend_requests[target].remove(self.username)
         self.inbound_friend_requests[self.username].remove(target)
