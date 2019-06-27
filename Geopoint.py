@@ -16,7 +16,7 @@ from tornado.ioloop import IOLoop
 from tornado.web import Application, StaticFileHandler
 from tornado.websocket import WebSocketHandler
 
-import math
+from math import radians, cos
 
 database_client = pymongo.MongoClient(host='localhost', port=27017)
 API_METHODS = {}
