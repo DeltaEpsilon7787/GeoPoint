@@ -2,6 +2,7 @@ import logging
 from collections import defaultdict
 from functools import wraps
 from json import loads
+from operator import itemgetter
 from os import getcwd, mkdir
 from os.path import join as path_join
 from random import choice
@@ -14,6 +15,8 @@ import pymongo
 from tornado.ioloop import IOLoop
 from tornado.web import Application, StaticFileHandler
 from tornado.websocket import WebSocketHandler
+
+import math
 
 database_client = pymongo.MongoClient(host='localhost', port=27017)
 API_METHODS = {}
@@ -81,6 +84,20 @@ def require_auth(func):
             self.generate_error(-1, 'NEED_AUTH')
 
     return inner
+
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    R = 6371000
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+
+    a = (
+        math.sin(0.5 * d_lat)**2 +
+        math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) +
+        math.sin(0.5 * d_lon)**2
+    )
+    c = 2 * math.atan2(a**0.5, (1-a)**0.5)
+    return R * c
 
 
 class Activation(object):
@@ -224,12 +241,59 @@ class GeopointClient(WebSocketHandler):
     @register_api
     @require_auth
     async def geopoint_post(self, id_, lat=None, lon=None):
-        database_client.local.points.insert_one({
+        new_point = {
             'username': self.username,
             'time': IOLoop.current().time(),
             'lat': lat,
             'lon': lon
+        }
+
+        points = list(database_client.local.points.find({
+            'username': self.username
+        }))
+
+        if len(points > 20000):
+            self.generate_error(id_, 'TOO_MANY_POINTS')
+            return
+
+        database_client.local.points.insert_one(new_point)
+        points.append(new_point)
+
+        database_client.local.points.delete_many({
+            '$lt': {
+                # Geopoints persist only 2 hours.
+                'time': IOLoop.current().time() - 7200
+            }
         })
+
+        if len(points > 1):
+            points.sort(key=itemgetter('time'))
+
+            distance_deltas = [
+                haversine_distance(
+                    alpha['lat'], alpha['lon'], beta['lat'], beta['lon'])
+                for alpha, beta in zip(points[:-1], points[1:])
+            ]
+
+            time_deltas = [
+                beta['time'] - alpha['time']
+                for alpha, beta in zip(points[:-1], points[1:])
+            ]
+
+            speed_points = [
+                dst / tm
+                for dst, tm in zip(distance_deltas, time_deltas)
+            ]
+
+            database_client.local.users.update_one({
+                'username': self.username
+            }, {
+                '$set': {
+                    'total_distance': sum(distance_deltas),
+                    'avg_speed': sum(speed_points) / len(speed_points)
+                }
+            })
+
         self.generate_success(id_)
 
     @register_api
@@ -250,7 +314,8 @@ class GeopointClient(WebSocketHandler):
 
             if target in self.online_users:
                 for client in self.online_users[target]:
-                    client.generate_success(-1, 'FRIEND_REQUEST', data=self.username)
+                    client.generate_success(-1,
+                                            'FRIEND_REQUEST', data=self.username)
 
     @register_api
     @require_auth
@@ -278,11 +343,13 @@ class GeopointClient(WebSocketHandler):
 
             if target in self.online_users:
                 for client in self.online_users[target]:
-                    client.generate_success(-1, 'FRIEND_LIST_CHANGED', data=self.username)
+                    client.generate_success(-1,
+                                            'FRIEND_LIST_CHANGED', data=self.username)
 
             if self.username in self.online_users:
                 for client in self.online_users[self.username]:
-                    client.generate_success(-1, 'FRIEND_LIST_CHANGED', data=self.username)
+                    client.generate_success(-1,
+                                            'FRIEND_LIST_CHANGED', data=self.username)
 
     @register_api
     @require_auth
@@ -303,12 +370,15 @@ class GeopointClient(WebSocketHandler):
 
         if target in self.online_users:
             for client in self.online_users[target]:
-                client.generate_success('-1', 'FRIEND_LIST_CHANGED', data=self.username)
+                client.generate_success(
+                    '-1', 'FRIEND_LIST_CHANGED', data=self.username)
 
         if self.username in self.online_users:
             for client in self.online_users[self.username]:
-                client.generate_success(-1, 'FRIEND_LIST_CHANGED', data=self.username)
-                client.generate_success(-1, 'FRIEND_REQUEST_LIST_CHANGED', data=target)
+                client.generate_success(-1,
+                                        'FRIEND_LIST_CHANGED', data=self.username)
+                client.generate_success(-1,
+                                        'FRIEND_REQUEST_LIST_CHANGED', data=target)
 
         self.outgoing_friend_requests[target].remove(self.username)
         self.inbound_friend_requests[self.username].remove(target)
@@ -327,7 +397,8 @@ class GeopointClient(WebSocketHandler):
         self.generate_success(id_, data=target)
         if self.username in self.online_users:
             for client in self.online_users[self.username]:
-                client.generate_success(-1, 'FRIEND_REQUEST_LIST_CHANGED', data=target)
+                client.generate_success(-1,
+                                        'FRIEND_REQUEST_LIST_CHANGED', data=target)
 
         self.outgoing_friend_requests[target].remove(self.username)
         self.inbound_friend_requests[self.username].remove(target)
@@ -339,45 +410,54 @@ class GeopointClient(WebSocketHandler):
 
     @register_api
     @require_auth
-    async def get_user_info(self, id_, target=None):
+    async def get_user_info(self, id_, target=None, time_frame=None):
         if not await user_in_db(target):
             self.generate_error(id_)
         else:
+            points = list(database_client.local.points.find({
+                'username': self.username,
+                '$gt': {
+                    'time': IOLoop.current().time() - time_frame
+                }
+            }))
+
+            if len(points > 1):
+                points.sort(key=itemgetter('time'))
+
+                distance_deltas = [
+                    haversine_distance(
+                        alpha['lat'], alpha['lon'], beta['lat'], beta['lon'])
+                    for alpha, beta in zip(points[:-1], points[1:])
+                ]
+
+                time_deltas = [
+                    beta['time'] - alpha['time']
+                    for alpha, beta in zip(points[:-1], points[1:])
+                ]
+
+                speed_points = [
+                    dst / tm
+                    for dst, tm in zip(distance_deltas, time_deltas)
+                ]
+
+                database_client.local.users.update_one({
+                    'username': self.username
+                }, {
+                    '$set': {
+                        'total_distance': sum(distance_deltas),
+                        'avg_speed': sum(speed_points) / len(speed_points)
+                    }
+                })
+
             user = database_client.local.users.find_one({
                 'username': target
             })
             self.generate_success(id_, data={
                 'target': target,
                 'email': user['email'],
-                'avg_speed': sum(user['speed_points']) / len(user['speed_points']),
+                'avg_speed': user['avg_speed'],
                 'total_distance': user['total_distance']
             })
-
-    @register_api
-    @require_auth
-    async def increment_distance(self, id_, distance_delta=None):
-        assert distance_delta >= 0
-        database_client.local.users.update_one({
-            'username': self.username
-        }, {
-            '$inc': {
-                'total_distance': distance_delta
-            }
-        })
-        self.generate_success(id_)
-
-    @register_api
-    @require_auth
-    async def append_speed_point(self, id_, speed=None):
-        assert speed >= 0
-        database_client.local.users.update_one({
-            'username': self.username
-        }, {
-            '$push': {
-                'speed_points': speed
-            }
-        })
-        self.generate_success(id_)
 
     @register_api
     @require_auth
@@ -390,7 +470,8 @@ class GeopointClient(WebSocketHandler):
     @register_api
     @require_auth
     async def get_friend_requests(self, id_):
-        self.generate_success(id_, data=self.inbound_friend_requests[self.username])
+        self.generate_success(
+            id_, data=self.inbound_friend_requests[self.username])
 
     @register_api
     @require_auth
@@ -453,7 +534,8 @@ app = Application(
         ('/websocket/([a-zA-Z0-9_]+)/([a-f0-9]{64})',
          GeopointClient, {'guest_session': False}),
         ('/websocket', GeopointClient, {'guest_session': True}),
-        ('/avatar/(.+)', StaticFileHandler, {'path': path_join(getcwd(), 'avatars')}),
+        ('/avatar/(.+)', StaticFileHandler,
+         {'path': path_join(getcwd(), 'avatars')}),
     ],
     websocket_ping_interval=5,
     websocket_ping_timeout=300
