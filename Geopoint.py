@@ -403,7 +403,7 @@ class GeopointClient(WebSocketHandler):
                 points.sort(key=itemgetter('time'))
 
                 distance_deltas = [
-                    haversine_distance(
+                    approximate_distance(
                         alpha['lat'], alpha['lon'], beta['lat'], beta['lon'])
                     for alpha, beta in zip(points[:-1], points[1:])
                 ]
