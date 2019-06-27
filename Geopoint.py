@@ -86,18 +86,24 @@ def require_auth(func):
     return inner
 
 
-def haversine_distance(lat1, lon1, lat2, lon2):
-    R = 6371000
-    d_lat = math.radians(lat2 - lat1)
-    d_lon = math.radians(lon2 - lon1)
+def approximate_distance(lat1, lon1, lat2, lon2):
+    R = 6371008.7714150598
 
-    a = (
-        math.sin(0.5 * d_lat)**2 +
-        math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) +
-        math.sin(0.5 * d_lon)**2
-    )
-    c = 2 * math.atan2(a**0.5, (1-a)**0.5)
-    return R * c
+    delta_phi = radians(lat2 - lat1)
+    delta_lambda = radians(lon2 - lon1)
+
+    return R * (
+        delta_phi**2 +
+        (
+            delta_lambda *
+            cos(
+                radians(
+                    0.5 *
+                    (lat1 + lat2)
+                )
+            )
+        )**2
+    )**0.5
 
 
 class Activation(object):
