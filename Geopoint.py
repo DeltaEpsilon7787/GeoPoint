@@ -260,9 +260,9 @@ class GeopointClient(WebSocketHandler):
         points.append(new_point)
 
         database_client.local.points.delete_many({
-            '$lt': {
+            'time': {
                 # Geopoints persist only 2 hours.
-                'time': IOLoop.current().time() - 7200
+                '$lt': IOLoop.current().time() - 7200
             }
         })
 
@@ -416,8 +416,8 @@ class GeopointClient(WebSocketHandler):
         else:
             points = list(database_client.local.points.find({
                 'username': self.username,
-                '$gt': {
-                    'time': IOLoop.current().time() - time_frame
+                'time': {
+                    '$gt': IOLoop.current().time() - time_frame
                 }
             }))
 
